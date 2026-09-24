@@ -44,7 +44,7 @@ def main(args):
     for i in range(args.folds):
         print("Generating prototypes for fold ", i)
         split_dir = os.path.join(args.splits_dir, f'splits/{i}')
-        prototype_dir = os.path.join(args.data_source, "prototypes", f'splits/{i}')
+        prototype_dir = os.path.join(args.data_source, "prototypes", args.fm_type, f'splits/{i}')
         dataloader = create_dataloader(args, split_dir)
         pt_weights = cluster(dataloader, 
                             n_proto=args.n_proto,
@@ -75,13 +75,15 @@ if __name__ == "__main__":
     parser.add_argument('--mode', type=str, choices=['kmeans', 'faiss'], default='faiss', help='Clustering mode')
 
     # Data args
+    parser.add_argument('--splits_dir', type=str, default='doc/splits/tcga_brca/', help='The splits directory')
     parser.add_argument('--data_source', type=str, default='data/data_files/tcga_brca/', help='The data source')
+    parser.add_argument('--fm_type', type=str, default='uni', choices=['uni', 'mstar', 'conchv15', 'virchow2'], help='foundation model type for WSI patch embeddings')
     parser.add_argument('--wsi_dir', type=str, default='wsi/extracted_res0_5_patch256_uni/feats_h5/', help='The WSI features directory')
     parser.add_argument('--coord_dir', type=str, default=None, help='Optional directory for coordinates of the patches (slide2vec)')
-    parser.add_argument('--bool_strip_slide_ext', type=bool, default=False, help='Whether to strip the slide extension from the slide name')
-    parser.add_argument('--bool_return_coords', type=bool, default=False, help='Whether to return the coordinates of the patches (slide2vec)')
+    parser.add_argument('--bool_strip_slide_ext', type=bool, default=False, help='Whether to strip the slide extension from the slide name, "true" if used; drop variable if not used')
+    parser.add_argument('--bool_return_coords', type=bool, default=False, help='Whether to return the coordinates of the patches (slide2vec), "true" if used; drop variable if not used')
     parser.add_argument('--in_dim', type=int, default=1024)
-    parser.add_argument('--batch_size', type=int, default=8, help='Batch size for the dataloader. Currently only batch_size=1 is supported') #TODO: Implement collate function
+    parser.add_argument('--batch_size', type=int, default=1, help='Batch size for the dataloader. Currently only batch_size=1 is supported') #TODO: Implement collate function
 
     args = parser.parse_args()
     main(args)

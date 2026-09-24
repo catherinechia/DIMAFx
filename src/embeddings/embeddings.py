@@ -3,6 +3,16 @@ import torch
 from utils.general_utils import load_pkl, save_pkl
 from models.PANTHER import PANTHER
 
+# Create a dictionary for foundation model and their respective embedding dimensions
+dict_fm = {
+    'uni': 1024,
+    'mstar': 1024,
+    'conchv15':768,
+    'virchow2': 1280, #CLS or patch tokens only
+}
+
+
+
 def get_prototypes(n_proto, embed_dim, split_folder, proto_file):
     """"
         Load, check and return the specified prototypes
@@ -22,12 +32,13 @@ def get_prototypes(n_proto, embed_dim, split_folder, proto_file):
     return prototypes
 
 
-def create_slide_embeddings(args, prototypes, dataloader):
+
+def create_slide_embeddings(args, in_dim_fm, prototypes, dataloader):
     """
         Generate the slide embeddings in an unsupervised way using PANTHER (https://github.com/mahmoodlab/PANTHER)
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = PANTHER(args, prototypes, device).to(device)
+    model = PANTHER(args, in_dim_fm, prototypes, device).to(device)
 
     # Generate the slide embeddings
     X, y = model.predict(dataloader)
@@ -64,27 +75,27 @@ def get_slide_embeddings(args, mode, dataloader):
     """
         Obtain slide embeddings
     """
-
+    in_dim_fm = dict_fm[args.fm_type]
     # Preparing file path for saving embeddings
     print('\nConstructing unsupervised slide embedding...', end=' ')
-    fm_type = args.wsi_feats.split("_")[-1]
-    embeddings_name = f"{mode}_{fm_type}_embeddings_wsi_proto_{args.n_proto}_em_{args.em_iter}_tau_{args.tau}.pkl"
-    embedding_dir = os.path.join(dataloader.dataset.split_dir, 'embeddings_DIMAFx')
-
+    emb_slide_filename = f"{mode}_{args.fm_type}_embeddings_wsi_proto_{args.n_proto}_em_{args.em_iter}_tau_{args.tau}.pkl"
+    #embedding_dir = os.path.join(dataloader.dataset.split_dir, 'embeddings_DIMAFx')
+    split_folder_dir = os.path.join(args.proto_splits_dir, f'{dataloader.dataset.fold}')
+    emb_slide_path = os.path.join(split_folder_dir, emb_slide_filename)
     
-    if os.path.isfile(os.path.join(embedding_dir, embeddings_name)):
+    if os.path.isfile(emb_slide_path):
         # Load existing embeddings if already created
-        embeddings = load_pkl(embedding_dir, embeddings_name)
+        embeddings = load_pkl(split_folder_dir, emb_slide_filename)
         print(f'\n\tEmbedding already exists! Loading', end=' ')
     else:
         # Else, create them using PANTHER
-        split_folder = dataloader.dataset.get_split_folder()
-        prototypes = get_prototypes(args.n_proto, args.in_dim, split_folder, args.proto_file)
-        embeddings = create_slide_embeddings(args, prototypes, dataloader)
+        #split_folder = dataloader.dataset.get_split_folder()
+        prototypes = get_prototypes(args.n_proto, in_dim_fm, split_folder_dir, args.proto_file)
+        embeddings = create_slide_embeddings(args, in_dim_fm, prototypes, dataloader)
 
         # Save the embeddings for efficiency
-        os.makedirs(embedding_dir, exist_ok=True)
-        save_pkl(embedding_dir, embeddings_name, embeddings)
+        #os.makedirs(embedding_dir, exist_ok=True)
+        save_pkl(split_folder_dir, emb_slide_filename, embeddings)
     
     dataloader.dataset.X, dataloader.dataset.Y = embeddings['X'], embeddings['y']
     assert dataloader.dataset.X is not None

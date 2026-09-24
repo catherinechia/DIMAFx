@@ -15,9 +15,9 @@ def get_dataset(args, mode, fold):
     # Obtain dataset for SHAP
     dataset = MMSurvivalDataset(args, mode, fold)
 
-    embeddings_name = f"{mode}_uni_embeddings_wsi_proto_{args.n_proto}_em_{args.em_iter}_tau_{args.tau}.pkl"
-    embedding_dir = os.path.join(dataset.get_split_dir(), 'embeddings_DIMAFx')
-
+    embeddings_name = f"{mode}_{args.fm_type}_embeddings_wsi_proto_{args.n_proto}_em_{args.em_iter}_tau_{args.tau}.pkl"
+    embedding_dir = os.path.join(args.proto_splits_dir, f'{fold}')
+    
     try:
         embeddings = load_pkl(embedding_dir, embeddings_name)
     except:

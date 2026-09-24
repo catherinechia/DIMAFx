@@ -12,6 +12,8 @@ from sklearn.preprocessing import StandardScaler
 import warnings
 warnings.filterwarnings('ignore')
 
+l_wsi_extensions = ('.svs', '.ndpi', '.tif', '.tiff', '.mrxs', '.scn', '.vms', '.vmu', '.svslide', '.bif', '.qptiff', '.dcm')
+
 class MMSurvivalDataset(Dataset):
     """
         Multi Modal Dataset using RNA-seq data and WSI 
@@ -35,7 +37,7 @@ class MMSurvivalDataset(Dataset):
 
         # Data args
         self.data_source = args.data_source
-        self.split_dir = os.path.join(self.data_source, f'splits/{self.fold}/')
+        self.split_dir = os.path.join(args.splits_dir, f'{self.fold}/')
         self.duplicates = False
         if 'oversampled' in args.data_filter_type:
             self.duplicates = True
@@ -51,12 +53,15 @@ class MMSurvivalDataset(Dataset):
 
         # WSI args
         self.slide_col = slide_col
-        self.wsi_feats = args.wsi_feats
+        self.feat_wsi_dir = args.feat_wsi_dir
         self.X = None
         self.y = None
 
         # RNA args
+        self.omics_dir = args.omics_dir
         self.omics_type = args.omics_type
+        self.feat_omics_path = args.feat_omics_path
+        self.signatures_omics_path = args.signatures_omics_path
         self.scaler = None
 
         # Label args
@@ -66,7 +71,7 @@ class MMSurvivalDataset(Dataset):
         self.n_label_bins = args.n_label_bins
         self.label_bins = None
 
-        # Setup and check GT discrete labels iff NLL
+        # Setup and check GT discrete labels iff NLL #TODO: Move to after all inits, so that data_df is initialized
         if self.n_label_bins > 0:
             self.init_disc_labels()
 
@@ -120,11 +125,12 @@ class MMSurvivalDataset(Dataset):
     def init_df_wsi(self):
         """ Set up WSI data of this split. """
         # Obtain directory containing the patch features
-        self.feat_dir_wsi = os.path.join(self.data_source, f"wsi/{self.wsi_feats}/feats_h5")
+        #self.feat_wsi_dir = os.path.join(self.data_source, f"wsi/{self.wsi_feats}/feats_h5")
         self.data_df[self.slide_col] = self.data_df[self.slide_col].astype(str)
 
-        # Store feature paths 
-        feats_wsi_df = pd.DataFrame([(e.path, os.path.splitext(e.name)[0]) for e in os.scandir(self.feat_dir_wsi)], columns=['fpath', self.slide_col]).reset_index(drop=True)
+        # Store feature paths. If extensions are present in the slide ids, we can strip them off to match the slide ids in the splits file. Use l_wsi_extensions
+        feats_wsi_df = pd.DataFrame([(e.path, os.path.splitext(e.name)[0]) for e in os.scandir(self.feat_wsi_dir)], columns=['fpath', self.slide_col]).reset_index(drop=True)
+        feats_wsi_df[self.slide_col] = feats_wsi_df[self.slide_col].apply(lambda x: os.path.splitext(x)[0] if os.path.splitext(x)[1].lower() in l_wsi_extensions else x)
         self.check_wsi_files(feats_wsi_df)
 
         if self.duplicates:
@@ -140,12 +146,13 @@ class MMSurvivalDataset(Dataset):
     def init_df_rna(self):
         """ Set up RNA data of this split. """
         # Read RNA data
-        self.feat_dir_rna = os.path.join(self.data_source, f"rna/{self.omics_type}.csv")
-        if os.path.isfile(self.feat_dir_rna):
-            self.df_rna = pd.read_csv(self.feat_dir_rna, engine='python', index_col=0)
-            self.df_rna = self.df_rna.rename(columns={'Unnamed: 0': 'case_id'})
+        #self.feat_dir_rna = os.path.join(self.data_source, f"rna/{self.omics_type}.csv")
+        if os.path.isfile(self.feat_omics_path):
+            self.df_rna = pd.read_csv(self.feat_omics_path, engine='python')
+            # Rename first column with any name to 'case_id'
+            self.df_rna = self.df_rna.rename(columns={self.df_rna.columns[0]: 'case_id'})
         else:
-            raise FileNotFoundError(f"{self.feat_dir_rna} not found!")
+            raise FileNotFoundError(f"{self.feat_omics_path} not found!")
         
         # Check for duplicates
         self.check_rna_files()
@@ -192,17 +199,18 @@ class MMSurvivalDataset(Dataset):
 
     def setup_scaler(self):
         """ Fit or load scaler for RNA data. """
+        out_dir = os.path.join(self.omics_dir, 'scalers', 'splits', f'{self.fold}')
         if self.mode == 'train':
             # Fit the scaler on the training data
             self.scaler = StandardScaler().fit(self.df_rna)
-            save_pkl(self.split_dir, f'{self.omics_type}_scaler_fold_{self.fold}.pkl', self.scaler)
+            save_pkl(out_dir, f'{self.omics_type}_scaler_fold_{self.fold}.pkl', self.scaler)
         else:
             try:
                 # Read the scaler from the pickle file
                 print("Load scaler")
-                self.scaler = load_pkl(self.split_dir, f'{self.omics_type}_scaler_fold_{self.fold}.pkl')
+                self.scaler = load_pkl(out_dir, f'{self.omics_type}_scaler_fold_{self.fold}.pkl')
             except FileNotFoundError:
-                print(f"Cannot access the scaler from training. Make sure '{self.split_dir}scaler_fold_{self.fold}.pkl' exists.")
+                print(f"Cannot access the scaler from training. Make sure '{out_dir}scaler_fold_{self.fold}.pkl' exists.")
                 self.scaler = None  
     
     def apply_scaler(self):
@@ -217,7 +225,8 @@ class MMSurvivalDataset(Dataset):
 
     def setup_rna_pathways(self):
         """ Load Hallmarks biological pathways, which serve as the prototypes. """
-        signatures = pd.read_csv(os.path.join(self.data_source, f"../hallmarks_signatures.csv"))
+        #signatures = pd.read_csv(os.path.join(self.data_source, f"../hallmarks_signatures.csv"))
+        signatures = pd.read_csv(self.signatures_omics_path, index_col=0)
         self.rna_names = []
         self.pathway_names = []
         self.pathway_sizes = []
@@ -293,30 +302,19 @@ class MMSurvivalDataset(Dataset):
         else:
             # Else obtain the image features
             feat_path = self.data_df.loc[idx]['fpath']
-            with h5py.File(feat_path, 'r') as f:
-                features = f['features'][:]
-
+            # if file ends with .h5
+            if feat_path.endswith('.h5'): #CLAM
+                with h5py.File(feat_path, 'r') as f:
+                    features = f['features'][:]
+            elif feat_path.endswith('.pt'): #slide2vec
+                features = torch.load(feat_path, map_location='cpu', weights_only=True).float()
             if len(features.shape) > 2:
                 assert features.shape[0] == 1, f'{features.shape} is not compatible! It has to be (1, numOffeats, feat_dim) or (numOffeats, feat_dim)'
                 features = np.squeeze(features, axis=0)
             
-            features = torch.from_numpy(features)
+            # If feature is not a tensor, convert it to a tensor
+            if not isinstance(features, torch.Tensor):
+                features = torch.from_numpy(features)
             out['img'] = features
 
         return out
-    
-
-
-
-
-
-
-
-    
-
-
-
-        
-
-
-
