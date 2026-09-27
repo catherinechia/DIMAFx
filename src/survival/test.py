@@ -9,7 +9,7 @@ from .metrics import compute_disentanglement, compute_survival_metrics
 from utils.train_utils import list_to_device, LoggingMeter
 from utils.general_utils import save_json, save_pkl
 from embeddings.embeddings import prepare_embeddings
-from models.DIMAFx import DIMAFx
+from models.DIMAFx import DIMAFxSurvival
 
 def test_survival_model(model, test_dl, device, survival_info_train=None, return_attn=False, result_dir=None, mode='post_training'):
     """ Test a survival prediction model for a single fold. """
@@ -133,7 +133,7 @@ def survival_test(args, test_dl, fold, survival_info_train):
     test_dl, data_info  = prepare_embeddings(args, 'test', test_dl)
 
     # Load model
-    model = DIMAFx(rna_dims=data_info['Pathway sizes'],
+    model = DIMAFxSurvival(rna_dims=data_info['Pathway sizes'],
                        histo_dim=data_info['Dim wsi'],
                        device=device,
                        single_out_dim=256,

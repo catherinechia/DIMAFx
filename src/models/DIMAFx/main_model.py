@@ -4,9 +4,17 @@ import sys
 
 from .layers import MultiSNN, CrossAttentionLayer, PrototypeAggregator, FeedForwardEnsemble
 from survival.losses import NLLSurvLoss, CoxLoss,  DisentangledSurvLoss
+from classification.losses import CEClassLoss, SVMClassLoss
 
-class DIMAFx(nn.Module):
-    """ Main model of Explainable Disentangled and Interpretable Multimodal Attention Fusion. """
+class DIMAFxBase(nn.Module):
+    """
+    Shared backbone of Explainable Disentangled and Interpretable Multimodal Attention Fusion.
+
+    Builds the disentangled RNA/WSI cross-attention architecture and exposes the
+    fusion pipeline (pre-attention embeddings, disentangled attention fusion, SHAP
+    forward passes, checkpoint loading) reused by task-specific heads such as
+    DIMAFxSurvival and DIMAFxClassifier.
+    """
     def __init__(
             self,
             rna_dims,
@@ -16,7 +24,7 @@ class DIMAFx(nn.Module):
             single_out_dim=256,
             loss_fn='cox',
             aggr_post_embed='weighted_mean',
-            num_proto_wsi=16, 
+            num_proto_wsi=16,
             wsi_representation_type='importance',
             output_fnn_type='none'):
         """
@@ -32,7 +40,7 @@ class DIMAFx(nn.Module):
             - wsi_representation_type : Type of WSI representation to use (str), default in DIMAFx is 'importance'
         """
 
-        super(DIMAFx, self).__init__()
+        super(DIMAFxBase, self).__init__()
 
         self.device = device
 
@@ -50,7 +58,7 @@ class DIMAFx(nn.Module):
         self.wsi_representation_type = wsi_representation_type # normal or importance
         self.aggr_post_embed = aggr_post_embed
         self.output_fnn_type = output_fnn_type
-        
+
         # Loss function
         self.loss_fn = loss_fn
 
@@ -79,7 +87,7 @@ class DIMAFx(nn.Module):
                 dim=self.single_out_dim,
                 dim_head=multi_out_dim,
                 heads=1)
-        
+
         self.wsi_attention = CrossAttentionLayer(
                 dim=self.single_out_dim,
                 dim_head=multi_out_dim,
@@ -89,7 +97,7 @@ class DIMAFx(nn.Module):
                 dim=self.single_out_dim,
                 dim_head=multi_out_dim,
                 heads=1)
-        
+
         self.cross_attention_wsi_rna = CrossAttentionLayer(
                 dim=self.single_out_dim,
                 dim_head=multi_out_dim,
@@ -101,7 +109,7 @@ class DIMAFx(nn.Module):
         else:
             # DIMAFx uses none
             self.output_fnn = None
-        
+
         self.layer_norm = nn.LayerNorm(multi_out_dim)
 
         # Cox PH risk predictor
@@ -120,11 +128,11 @@ class DIMAFx(nn.Module):
             self.aggr_wsi_rna = PrototypeAggregator(multi_out_dim, 50)
         else:
             sys.exit("Unspecified post attention prototype aggregation method! Abborting..")
-        
+
 
     def get_pt_embed(self):
         """
-        Per-prototype learnable/non-learnable embeddings to append to the original prototype embeddings 
+        Per-prototype learnable/non-learnable embeddings to append to the original prototype embeddings
         """
         append_dim = 32
         path_proj_dim_new = self.single_out_dim + append_dim
@@ -145,13 +153,13 @@ class DIMAFx(nn.Module):
 
         wsi_pt_embedding_exp = self.wsi_pt_embedding.expand(bs, -1, -1)
         wsi_pre_fusion_exp = torch.cat([wsi_embed, wsi_pt_embedding_exp], dim=-1)
-  
+
 
         return rna_pre_fusion_exp, wsi_pre_fusion_exp
 
     def disentangled_attention_fusion(self, wsi_pre_fusion_exp, rna_pre_fusion_exp):
-        # Pass through disentangled fusion 
-        
+        # Pass through disentangled fusion
+
         # B, 50, multi_out_dim
         post_self_rna = self.rna_attention(rna_pre_fusion_exp, rna_pre_fusion_exp)
 
@@ -197,9 +205,9 @@ class DIMAFx(nn.Module):
         post_attn_tokens = self.disentangled_attention_fusion(wsi_pre_fusion_exp, rna_pre_fusion_exp)
 
 
-        
+
         return post_attn_tokens
-    
+
 
     def compute_post_attn_tokens_av(self, wsi, rna):
         """ Compute disentangled, aggregated vectors. """
@@ -215,7 +223,7 @@ class DIMAFx(nn.Module):
 
         # Aggregate the protypes per disentangled representation
         rna_norm_tokens = fused_norm_tokens[:, :self.nr_rna_prototypes, :]
-        rna_norm_tokens_aggr = self.aggr_rna(rna_norm_tokens, dim=1) # B, dim 
+        rna_norm_tokens_aggr = self.aggr_rna(rna_norm_tokens, dim=1) # B, dim
 
         count = self.nr_rna_prototypes
         wsi_rna_norm_tokens = fused_norm_tokens[:, count:count + self.nr_rna_prototypes, :]
@@ -233,11 +241,11 @@ class DIMAFx(nn.Module):
         embedding = torch.stack([wsi_rna_norm_tokens_aggr, rna_wsi_norm_tokens_aggr, rna_norm_tokens_aggr, wsi_norm_tokens_aggr], dim=1)
 
         return embedding
-    
+
 
     def forward_shap_post_attn(self, post_attn_tokens):
         """" Forward SHAP pass from the disentangled representations. """
-        
+
         if self.output_fnn_type == 'indiv':
             fused_tokens = self.output_fnn(post_attn_tokens)
         else:
@@ -248,7 +256,7 @@ class DIMAFx(nn.Module):
 
         # Aggregate the protypes per disentangled representation
         rna_norm_tokens = fused_norm_tokens[:, :self.nr_rna_prototypes, :]
-        rna_norm_tokens_aggr = self.aggr_rna(rna_norm_tokens, dim=1) # B, dim 
+        rna_norm_tokens_aggr = self.aggr_rna(rna_norm_tokens, dim=1) # B, dim
 
         count = self.nr_rna_prototypes
         wsi_rna_norm_tokens = fused_norm_tokens[:, count:count + self.nr_rna_prototypes, :]
@@ -267,7 +275,7 @@ class DIMAFx(nn.Module):
         logits = self.classifier(embedding)
 
         return logits
-    
+
 
 
     def forward_shap_modal(self, wsi_batch, rna_batch):
@@ -315,9 +323,9 @@ class DIMAFx(nn.Module):
                 _, cross_attn_rna_wsi = self.cross_attention_rna_wsi(wsi_emb_exp, rna_emb_exp, return_attention=True)
                 # B, 16, dim
                 _, self_attn_wsi = self.wsi_attention(wsi_emb_exp, wsi_emb_exp, return_attention=True)
-      
 
-        # Pass through disentangled fusion 
+
+        # Pass through disentangled fusion
         # B, 50, multi_out_dim
         post_self_rna = self.rna_attention(rna_emb_exp, rna_emb_exp)
 
@@ -341,7 +349,7 @@ class DIMAFx(nn.Module):
 
         # Aggregate the protypes per disentangled representation
         rna_norm_tokens = fused_norm_tokens[:, :self.nr_rna_prototypes, :]
-        rna_norm_tokens_aggr = self.aggr_rna(rna_norm_tokens, dim=1) # B, dim 
+        rna_norm_tokens_aggr = self.aggr_rna(rna_norm_tokens, dim=1) # B, dim
 
         count = self.nr_rna_prototypes
         wsi_rna_norm_tokens = fused_norm_tokens[:, count:count + self.nr_rna_prototypes, :]
@@ -354,21 +362,21 @@ class DIMAFx(nn.Module):
         count = self.nr_rna_prototypes + self.nr_rna_prototypes + self.nr_wsi_prototypes
         wsi_norm_tokens = fused_norm_tokens[:, count:, :]
         wsi_norm_tokens_aggr = self.aggr_wsi(wsi_norm_tokens, dim=1) # B, dim
-        
+
         # Concat disentangled vectors
         embedding = torch.concat([wsi_rna_norm_tokens_aggr, rna_wsi_norm_tokens_aggr, rna_norm_tokens_aggr, wsi_norm_tokens_aggr], dim=1)
-        
+
 
         # Get risk
         logits = self.classifier(embedding)
-        
+
         results = {"wsi_rna_repr": wsi_rna_norm_tokens_aggr,
                             "rna_wsi_repr": rna_wsi_norm_tokens_aggr,
                             "logits": logits,
                             "wsi_repr": wsi_norm_tokens_aggr,
                             "rna_repr": rna_norm_tokens_aggr
                             }
-        
+
         if return_attn:
             results['self_attn_rna'] = self_attn_rna
             results['self_attn_wsi'] = self_attn_wsi
@@ -377,12 +385,22 @@ class DIMAFx(nn.Module):
 
         return results
 
+    def from_pretrained(self, cp_path):
+        # Load weights from pretrained model
+        state_dict = torch.load(cp_path, map_location=self.device)
+
+        # Load the weights into the model
+        self.load_state_dict(state_dict)
+
+
+class DIMAFxSurvival(DIMAFxBase):
+    """ DIMAFx for survival prediction, using the disentangled RNA/WSI attention fusion backbone. """
 
     def forward(self, wsi, rna, label, censorship, return_attn=False, return_embed=False):
         """ Main forward function"""
         # Forward pass
         output = self.forward_mm_no_loss(wsi, rna, return_attn)
-        
+
         # Compute the total loss
         output_results, output_log = self.compute_loss(output, label, censorship)
 
@@ -391,7 +409,7 @@ class DIMAFx(nn.Module):
             output_results['self_attn_wsi'] = output['self_attn_wsi']
             output_results['cross_attn_rna_wsi'] = output['cross_attn_rna_wsi']
             output_results['cross_attn_wsi_rna'] = output['cross_attn_wsi_rna']
-        
+
         if return_embed:
             output_results['wsi_rna_repr'] = output['wsi_rna_repr']
             output_results['rna_wsi_repr'] = output['rna_wsi_repr']
@@ -399,7 +417,7 @@ class DIMAFx(nn.Module):
             output_results['rna_repr'] = output['rna_repr']
 
         return output_results, output_log
-    
+
     def compute_loss(self, output, label, censorship):
         """Compute the loss given the output of the model."""
         logits = output['logits']
@@ -426,7 +444,7 @@ class DIMAFx(nn.Module):
                                  'rna_repr': output['rna_repr'],
                                  'mm_repr': torch.concat((output['rna_wsi_repr'], output['wsi_rna_repr']), dim=1)
                                  })
-        
+
         elif isinstance(self.loss_fn, DisentangledSurvLoss):
             total_loss, log_dict = self.loss_fn(output=output, times=label, censorships=censorship)
             risk = torch.exp(logits)
@@ -436,9 +454,54 @@ class DIMAFx(nn.Module):
 
         return results_dict, log_dict
 
-    def from_pretrained(self, cp_path):
-        # Load weights from pretrained model
-        state_dict = torch.load(cp_path, map_location=self.device)
 
-        # Load the weights into the model
-        self.load_state_dict(state_dict)
+class DIMAFxClassifier(DIMAFxBase):
+    """
+    DIMAFx for multimodal classification. Reuses the disentangled RNA/WSI attention
+    fusion backbone of DIMAFxBase, swapping out the survival head/loss for a classification
+    head/loss (no event time or censorship).
+    """
+
+    def forward(self, wsi, rna, label, return_attn=False, return_embed=False):
+        """ Main forward function"""
+        # Forward pass
+        output = self.forward_mm_no_loss(wsi, rna, return_attn)
+
+        # Compute the total loss
+        output_results, output_log = self.compute_loss(output, label)
+
+        if return_attn:
+            output_results['self_attn_rna'] = output['self_attn_rna']
+            output_results['self_attn_wsi'] = output['self_attn_wsi']
+            output_results['cross_attn_rna_wsi'] = output['cross_attn_rna_wsi']
+            output_results['cross_attn_wsi_rna'] = output['cross_attn_wsi_rna']
+
+        if return_embed:
+            output_results['wsi_rna_repr'] = output['wsi_rna_repr']
+            output_results['rna_wsi_repr'] = output['rna_wsi_repr']
+            output_results['wsi_repr'] = output['wsi_repr']
+            output_results['rna_repr'] = output['rna_repr']
+
+        return output_results, output_log
+
+    def compute_loss(self, output, label):
+        """ Compute the classification loss given the output of the model. """
+        logits = output['logits']
+
+        if not isinstance(self.loss_fn, (CEClassLoss, SVMClassLoss)):
+            sys.exit("Classification loss is not implemented, aborting... ")
+
+        total_loss, log_dict = self.loss_fn(logits=logits, labels=label)
+
+        probs = torch.softmax(logits, dim=1)
+        preds = torch.argmax(probs, dim=1)
+
+        results_dict = {'logits': logits,
+                         'probs': probs,
+                         'preds': preds,
+                         'wsi_repr': output['wsi_repr'],
+                         'rna_repr': output['rna_repr'],
+                         'mm_repr': torch.concat((output['rna_wsi_repr'], output['wsi_rna_repr']), dim=1),
+                         'loss': total_loss}
+
+        return results_dict, log_dict

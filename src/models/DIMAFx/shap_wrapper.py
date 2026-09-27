@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import sys
 
-from .main_model import DIMAFx
+from .main_model import DIMAFxBase
 from utils.train_utils import list_to_device
 
 class SHAP_DIMAFx(nn.Module):
