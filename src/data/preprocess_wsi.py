@@ -6,7 +6,7 @@ import os
 from torch import seed
 from torch.utils.data import DataLoader
 
-from data.WSI_dataset import WSIClusterDataset
+from WSI_dataset import WSIClusterDataset
 from utils.general_utils import set_seed, save_pkl
 from embeddings.prototype import cluster
 
@@ -23,8 +23,11 @@ def create_dataloader(args, split_dir):
     bool_return_coords = args.bool_return_coords
     batch_size = args.batch_size
     #
+    # Slide id column, default is slide_id (TCGA)
+    id_col = args.id_col if args.id_col else 'slide_id'
+    #
     # Get the dataset and dataloader
-    dataset = WSIClusterDataset(wsi_path, split_file, coord_dir=coord_dir, bool_strip_slide_ext=bool_strip_slide_ext, bool_return_coords=bool_return_coords)
+    dataset = WSIClusterDataset(wsi_path, split_file, slide_col=id_col, coord_dir=coord_dir, bool_strip_slide_ext=bool_strip_slide_ext, bool_return_coords=bool_return_coords)
     dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=args.n_workers)
     return dataloader
 
@@ -76,6 +79,7 @@ if __name__ == "__main__":
 
     # Data args
     parser.add_argument('--splits_dir', type=str, default='doc/splits/tcga_brca/', help='The splits directory')
+    parser.add_argument('--id_col', type=str, default=None, help='Slide id column in the splits files, matching the names of the WSI feature files. Default: slide_id (TCGA). For dsquame: study_number')
     parser.add_argument('--data_source', type=str, default='data/data_files/tcga_brca/', help='The data source')
     parser.add_argument('--fm_type', type=str, default='uni', choices=['uni', 'mstar', 'conchv15', 'virchow2'], help='foundation model type for WSI patch embeddings')
     parser.add_argument('--wsi_dir', type=str, default='wsi/extracted_res0_5_patch256_uni/feats_h5/', help='The WSI features directory')
