@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 
 from embeddings.embeddings import get_mixture_params
 from models.DIMAFx import SHAP_DIMAFx
-from data.mm_survival_dataset import MMSurvivalDataset
+from data.mm_dataset import MMSurvivalDataset
 from utils.general_utils import load_pkl, save_pkl
 
 def get_dataset(args, mode, fold):
@@ -39,7 +39,7 @@ def prepare_data_shap_pre_attn(data, model, num_w, num_proto_wsi=16):
     feature_names = [f"wsi_pt_{i}" for i in range(num_proto_wsi)] + [f"rna_pt_{i}" for i in range(50)]
     samples = []
     for i in range(data.__len__()):
-        case_id = data.data_df.loc[i]['slide_id']
+        case_id = data.data_df.loc[i][data.slide_col]
         samples.append(case_id)
 
     return preproc_dataset, feature_names, samples
@@ -51,7 +51,7 @@ def prepare_data_shap_post_attn(data, model, num_w, num_proto_wsi=16):
     feature_names = [f"rna_specific_{i}" for i in range(50)] + [f"wsi_rna_{i}" for i in range(50)] + [f"rna_wsi_{i}" for i in range(num_proto_wsi)] + [f"wsi_specific_{i}" for i in range(num_proto_wsi)]
     samples = []
     for i in range(data.__len__()):
-        case_id = data.data_df.loc[i]['slide_id']
+        case_id = data.data_df.loc[i][data.slide_col]
         samples.append(case_id)
 
     return preproc_dataset, feature_names, samples
@@ -63,7 +63,7 @@ def prepare_data_shap_post_attn_av(data, model, num_w):
     feature_names = ["wsi_rna_zhg", "rna_wsi_zgh", "rna_specific_zgg", "wsi_specific_zhh"]
     samples = []
     for i in range(data.__len__()):
-        case_id = data.data_df.loc[i]['slide_id']
+        case_id = data.data_df.loc[i][data.slide_col]
         samples.append(case_id)
 
     return preproc_dataset, feature_names, samples

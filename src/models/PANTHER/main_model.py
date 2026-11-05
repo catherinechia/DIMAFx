@@ -14,9 +14,9 @@ class PANTHER(nn.Module):
     """
     Wrapper for PANTHER model
     """
-    def __init__(self, args, prototypes, device):
+    def __init__(self, args, in_dim, prototypes, device):
         super(PANTHER, self).__init__()
-        self.emb_dim = args.in_dim
+        self.emb_dim = in_dim
         self.outsize = args.n_proto
         self.prototypes = prototypes
         self.device = device
@@ -74,8 +74,36 @@ class PANTHER(nn.Module):
 
         return X, y
 
+    def create_emb_cls(self, data_loader):
+        """
+            Create slide embeddings to use in the classification model
+        """
+        X = []
+        label_output = []
+        # We need a BatchSize of 1 for creating the slide summaries!
+        dataset = data_loader.dataset
+        for i in tqdm(range(len(dataset))):
+            batch = dataset.__getitem__(i)
+            data, label = batch['img'].unsqueeze(dim=0), batch['label'].unsqueeze(dim=0)
+            data = data.to(self.device)
+
+            with torch.no_grad():
+                # Obtain slide embeddings (GMM parameters)
+                out = self.representation(data)
+                out = out['repr'].data.detach().cpu()
+
+            X.append(out)
+            label_output.append(label)
+
+        X = torch.cat(X)
+        y = torch.cat(label_output).numpy()
+
+        return X, y
+
     def predict(self, data_loader):
-        output = self.create_emb_surv(data_loader)
-        return output
+        # Survival datasets return censorship/survival time, classification datasets only a class label
+        if hasattr(data_loader.dataset, 'censorship_col'):
+            return self.create_emb_surv(data_loader)
+        return self.create_emb_cls(data_loader)
     
     

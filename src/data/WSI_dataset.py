@@ -198,22 +198,25 @@ class WSIDataset(Dataset):
                  wsi_feats,
                  mode, 
                  fold,
-                 slide_col='slide_id'):
+                 id_col=None):
         """
         Args:
             - data_source   : Dir of the data (str)
             - wsi_feats     : TYpe of WSI feats (str)
             - mode          : Train or Test (str)
             - fold          : Fold/split number (int)
-            - slide_col     : Name of the column storing the slide ids (str)
+            - id_col        : Name of the column storing the slide and patient ids. Default: slide_id and case_id (TCGA) (str)
         """
         self.mode = mode
         self.fold = fold
         self.data_source = data_source
         self.split_dir = os.path.join(self.data_source, f'splits/{self.fold}/')
 
+        # Id args
+        self.slide_col = id_col if id_col else 'slide_id'
+        self.case_col = id_col if id_col else 'case_id'
+
         # WSI args
-        self.slide_col = slide_col
         self.wsi_feats = wsi_feats
         # Will store the slide summary
         self.X = None
@@ -267,7 +270,7 @@ class WSIDataset(Dataset):
 
     def __getitem__(self, idx):
         # Obtain case and slide id
-        out = {'case_id': self.data_df.loc[idx]['case_id'],
+        out = {'case_id': self.data_df.loc[idx][self.case_col],
             'slide_id': self.data_df.loc[idx][self.slide_col]}
     
         if self.X is not None:

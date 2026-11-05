@@ -14,25 +14,6 @@ warnings.filterwarnings('ignore')
 
 l_wsi_extensions = ('.svs', '.ndpi', '.tif', '.tiff', '.mrxs', '.scn', '.vms', '.vmu', '.svslide', '.bif', '.qptiff', '.dcm')
 
-def load_wsi_features(feat_path):
-    """ Load the patch features of a slide as a (numOffeats, feat_dim) tensor. """
-    if feat_path.endswith('.h5'):  # CLAM
-        with h5py.File(feat_path, 'r') as f:
-            features = f['features'][:]
-    elif feat_path.endswith('.pt'):  # slide2vec
-        features = torch.load(feat_path, map_location='cpu', weights_only=True).float()
-    else:
-        raise ValueError(f'Unsupported feature file format: {feat_path}')
-
-    if len(features.shape) > 2:
-        assert features.shape[0] == 1, f'{features.shape} is not compatible! It has to be (1, numOffeats, feat_dim) or (numOffeats, feat_dim)'
-        features = np.squeeze(features, axis=0)
-
-    # If feature is not a tensor, convert it to a tensor
-    if not isinstance(features, torch.Tensor):
-        features = torch.from_numpy(features)
-    return features
-
 class MMDatasetBase(Dataset):
     """
     Shared base class for Multi Modal Dataset using RNA-seq data and WSI.
@@ -41,14 +22,12 @@ class MMDatasetBase(Dataset):
     def __init__(self,
                  args,
                  mode,
-                 fold,
-                 slide_col='slide_id'):
+                 fold):
         """
         Args:
             - args          : All the arguments given by the user (Obj)
             - mode          : Specifies if we are in 'train' or 'test' mode (str)
             - fold          : Specifies the fold number (int)
-            - slide_col     : Name of the column storing the slide ids (str)
         """
 
         self.mode = mode
@@ -65,8 +44,13 @@ class MMDatasetBase(Dataset):
         self.data_file = self.get_data_file_name(args)
         self.clinical_data_path = args.clinical_data_path
 
+        # Id args
+        # Slide and patient id columns, default is slide_id and case_id (TCGA). For dsquame: study_number for both
+        id_col = getattr(args, 'id_col', None)
+        self.slide_col = id_col if id_col else 'slide_id'
+        self.case_col = id_col if id_col else 'case_id'
+
         # WSI args
-        self.slide_col = slide_col
         self.feat_wsi_dir = args.feat_wsi_dir
         self.X = None
         self.y = None
@@ -87,7 +71,7 @@ class MMDatasetBase(Dataset):
         self.init_df_wsi()
         # Setup and check RNA data
         self.init_df_rna()
-        # Setup task-specific labels. This is bugfix of the original version. 
+        # Setup task-specific labels, now that data_df contains the final samples of this split
         self.init_labels()
         
     ############################################################
@@ -112,8 +96,7 @@ class MMDatasetBase(Dataset):
         """ Get the labels of all samples. """
         raise NotImplementedError
 
-    ############################################################
-    # Shared methods
+    # ----- Shared setup -----
 
     def get_data_file_name(self, args):
         """ Name of the split file of this mode, depending on the data filter type. """
@@ -126,7 +109,7 @@ class MMDatasetBase(Dataset):
     def check_unique_per_slide(self, col, name):
         """ Check that each slide has only one unique value in col. """
         num_unique = self.data_df.groupby(self.slide_col)[col].unique().apply(len)
-        assert (num_unique == 1).all(), f'Each case_id must have only one unique {name} value.'
+        assert (num_unique == 1).all(), f'Each {self.slide_col} must have only one unique {name} value.'
 
     def check_data_file(self):
         """ Check the clinical dataset. """
@@ -149,10 +132,10 @@ class MMDatasetBase(Dataset):
     def check_rna_files(self):
         """ Check that the rna files have no duplicates. """
         # For RNA we have a sample per person. For WSI we can have multiple slides per person.
-        assert not self.df_rna['case_id'].duplicated().any(), "There are duplicates in the rna data."
+        assert not self.df_rna[self.case_col].duplicated().any(), "There are duplicates in the rna data."
 
     def init_df(self):
-        """ Set up clinical data of this split. Also use clinical_data_path """
+        """ Set up clinical data of this split. """
         # Split file only determines which slide ids belong to this fold/mode
         split_file = os.path.join(self.split_dir, self.data_file)
         split_df = pd.read_csv(split_file)
@@ -185,8 +168,8 @@ class MMDatasetBase(Dataset):
         """ Set up RNA data of this split. """
         if os.path.isfile(self.feat_omics_path):
             self.df_rna = pd.read_csv(self.feat_omics_path, engine='python')
-            # Rename first column with any name to 'case_id'
-            self.df_rna = self.df_rna.rename(columns={self.df_rna.columns[0]: 'case_id'})
+            # Rename first column with any name to the patient id column
+            self.df_rna = self.df_rna.rename(columns={self.df_rna.columns[0]: self.case_col})
         else:
             raise FileNotFoundError(f"{self.feat_omics_path} not found!")
 
@@ -194,12 +177,12 @@ class MMDatasetBase(Dataset):
         self.check_rna_files()
 
         # Keep only the patients that are in this split and have WSI data
-        case_ids_overlap = overlap_col_df(self.df_rna, self.data_df, 'case_id')
+        case_ids_overlap = overlap_col_df(self.df_rna, self.data_df, self.case_col)
         sample_list = sorted(case_ids_overlap)
 
-        self.data_df = self.data_df[self.data_df['case_id'].isin(sample_list)].reset_index(drop=True)
-        self.df_rna = self.df_rna[self.df_rna['case_id'].isin(sample_list)].reset_index(drop=True)
-        self.df_rna = self.df_rna.set_index('case_id')
+        self.data_df = self.data_df[self.data_df[self.case_col].isin(sample_list)].reset_index(drop=True)
+        self.df_rna = self.df_rna[self.df_rna[self.case_col].isin(sample_list)].reset_index(drop=True)
+        self.df_rna = self.df_rna.set_index(self.case_col)
 
         # Set up hallmark pathways
         self.setup_rna_pathways()
@@ -231,8 +214,8 @@ class MMDatasetBase(Dataset):
         cols = self.df_rna.columns
         case_list = self.df_rna.index.values
         self.df_rna = pd.DataFrame(self.scaler.transform(self.df_rna), columns=cols)
-        self.df_rna.insert(0, 'case_id', case_list)
-        self.df_rna = self.df_rna.set_index('case_id')
+        self.df_rna.insert(0, self.case_col, case_list)
+        self.df_rna = self.df_rna.set_index(self.case_col)
 
     def setup_rna_pathways(self):
         """ Load Hallmarks biological pathways, which serve as the prototypes. """
@@ -255,8 +238,7 @@ class MMDatasetBase(Dataset):
             # Store the number of genes in the pathway
             self.pathway_sizes.append(len(omic))
 
-    ############################################################
-    # Smaller methods
+    # ----- Getters -----
 
     def get_split_dir(self):
         return self.split_dir
@@ -304,7 +286,7 @@ class MMDatasetBase(Dataset):
         out = self.get_label_dict(idx)
 
         # Obtain case and slide ids
-        case_id = self.data_df.loc[idx]['case_id']
+        case_id = self.data_df.loc[idx][self.case_col]
         slide_id = self.data_df.loc[idx][self.slide_col]
         out['case_id'] = case_id
         out['slide_id'] = slide_id
@@ -317,6 +299,27 @@ class MMDatasetBase(Dataset):
 
         return out
 
+
+def load_wsi_features(feat_path):
+    """ Load the patch features of a slide as a (numOffeats, feat_dim) tensor. """
+    if feat_path.endswith('.h5'):  # CLAM
+        with h5py.File(feat_path, 'r') as f:
+            features = f['features'][:]
+    elif feat_path.endswith('.pt'):  # slide2vec
+        features = torch.load(feat_path, map_location='cpu', weights_only=True).float()
+    else:
+        raise ValueError(f'Unsupported feature file format: {feat_path}')
+
+    if len(features.shape) > 2:
+        assert features.shape[0] == 1, f'{features.shape} is not compatible! It has to be (1, numOffeats, feat_dim) or (numOffeats, feat_dim)'
+        features = np.squeeze(features, axis=0)
+
+    # If feature is not a tensor, convert it to a tensor
+    if not isinstance(features, torch.Tensor):
+        features = torch.from_numpy(features)
+    return features
+
+
 class MMSurvivalDataset(MMDatasetBase):
     """
         Multi Modal Dataset using RNA-seq data and WSI
@@ -326,19 +329,17 @@ class MMSurvivalDataset(MMDatasetBase):
                  args,
                  mode,
                  fold,
-                 slide_col='slide_id',
                  label_bins=None):
         """
         Args:
             - args          : All the arguments given by the user (Obj)
             - mode          : Specifies if we are in 'train' or 'test' mode (str)
             - fold          : Specifies the fold number (int)
-            - slide_col     : Name of the column storing the slide ids (str)
             - label_bins    : Time bins for the discrete time labels, e.g. from the train split (array).
                               If None and n_label_bins > 0, they are fitted on this split.
         """
         self.label_bins = label_bins
-        super().__init__(args, mode, fold, slide_col)
+        super().__init__(args, mode, fold)
 
     def init_label_args(self, args):
         self.survival_time_col = args.target_col
@@ -348,7 +349,7 @@ class MMSurvivalDataset(MMDatasetBase):
 
     def check_labels(self):
         """ Check the clinical survival data. """
-        # Check that each case_id has only one survival value
+        # Check that each slide has only one survival value
         self.check_unique_per_slide(self.survival_time_col, 'survival')
 
         # check that all survival values are positive
@@ -394,6 +395,7 @@ class MMSurvivalDataset(MMDatasetBase):
         """ Get the time bins for the discrete time labels."""
         return self.label_bins
 
+
 class MMClassificationDataset(MMDatasetBase):
     """
         Multi Modal Dataset using RNA-seq data and WSI
@@ -405,7 +407,7 @@ class MMClassificationDataset(MMDatasetBase):
 
     def check_labels(self):
         """ Check the clinical classification data. """
-        # Check that each case_id has only one label value
+        # Check that each slide has only one label value
         self.check_unique_per_slide(self.target_col, 'label')
 
         # Check that all label values are valid class indices

@@ -35,7 +35,7 @@ def find_top_k(slide_best_patches, threshold):
     print("Lowest ll is: ", min(slide_best_patches, key=lambda x: x[2]))
     return i
 
-def visualize_pt_per_sample(type, fold, mode, split_folder, results_dir, wsi_feats, th, nr_prototypes):
+def visualize_pt_per_sample(type, fold, mode, split_folder, results_dir, wsi_feats, th, nr_prototypes, id_col=None):
     """Visualize the closest patches to each prototype for a specific fold."""
     slides_fpath = f'../data/data_files/tcga_{type}/wsi/images'
     h5_feats_fpath = f"../data/data_files/tcga_{type}/wsi/{wsi_feats}/feats_h5"
@@ -43,11 +43,11 @@ def visualize_pt_per_sample(type, fold, mode, split_folder, results_dir, wsi_fea
     results_dir = os.path.join(results_dir, mode)
     os.makedirs(results_dir, exist_ok=True)
 
-    all_qq, all_patch_lens, all_ids, all_mus = [], [], [], []
+    all_qq, all_patch_lens, all_ids, all_case_ids, all_mus = [], [], [], [], []
 
     # Get PANTHER model and the wsi's to obtain the embeddings
     panther_encoder = get_panther_encoder(split_folder=split_folder, nr_prototypes=nr_prototypes)
-    dataset = get_dataset(mode, fold, type, wsi_feats)
+    dataset = get_dataset(mode, fold, type, wsi_feats, id_col=id_col)
    
     # Loop over the dataset
     with torch.inference_mode():
@@ -70,6 +70,7 @@ def visualize_pt_per_sample(type, fold, mode, split_folder, results_dir, wsi_fea
             
             all_qq.append(qq)
             all_ids.append(slide_id)
+            all_case_ids.append(batch['case_id'])
             all_patch_lens.append(qq.shape[0])
 
     
@@ -94,7 +95,7 @@ def visualize_pt_per_sample(type, fold, mode, split_folder, results_dir, wsi_fea
         start_idx = 0
         all_persons = []
         for slide_idx, num_patches in enumerate(all_patch_lens):
-            person_id = "-".join(all_ids[slide_idx].split('-')[:3]) 
+            person_id = all_case_ids[slide_idx]
             if person_id in all_persons:
                 end_idx = start_idx + num_patches
                 start_idx = end_idx
@@ -145,10 +146,10 @@ def main(args):
     os.makedirs(result_dir, exist_ok=True)
 
     # Visualize prototypes with one patch per sample for the train set
-    visualize_pt_per_sample(args.data_type, args.fold, 'train', split_folder, result_dir, args.wsi_feats, args.threshold, args.nr_prototypes)
+    visualize_pt_per_sample(args.data_type, args.fold, 'train', split_folder, result_dir, args.wsi_feats, args.threshold, args.nr_prototypes, id_col=args.id_col)
 
     # Visualize prototypes with one patch per sample for the test set
-    visualize_pt_per_sample(args.data_type, args.fold, 'test', split_folder, result_dir, args.wsi_feats, args.threshold, args.nr_prototypes)
+    visualize_pt_per_sample(args.data_type, args.fold, 'test', split_folder, result_dir, args.wsi_feats, args.threshold, args.nr_prototypes, id_col=args.id_col)
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
@@ -158,6 +159,7 @@ if __name__ == "__main__":
     parser.add_argument('--fold', type=int, default=2)
     parser.add_argument('--wsi_feats', type=str, default='extracted_res0_5_patch256_uni', help='manually specify the wsi feat types')
     parser.add_argument('--threshold', type=float, default=0.9)
+    parser.add_argument('--id_col', type=str, default=None, help='Slide id column in the splits files, matching the names of the WSI feature files. Default: slide_id (TCGA). For dsquame: study_number')
     args = parser.parse_args()
     
     main(args)

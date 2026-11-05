@@ -3,16 +3,16 @@ import sys
 import os 
 from torch.utils.data import DataLoader
 
-from data.mm_survival_dataset import MMSurvivalDataset
+from data.mm_dataset import MMSurvivalDataset
 from utils.general_utils import set_seed, save_json, save_exp_settings
 from survival.train import survival_train
 from survival.test import survival_test
 from interpretability.shap_values import survival_shap
 
 
-def create_dataloader(args, fold, mode="train", type='dl'):
-    """ Obtain the dataset and dataloader. """
-    dataset = MMSurvivalDataset(args, mode, fold)
+def create_dataloader(args, fold, mode="train", type='dl', label_bins=None):
+    """ Obtain the dataset and dataloader. Test splits should get the label_bins of the train split. """
+    dataset = MMSurvivalDataset(args, mode, fold, label_bins=label_bins)
     #
     print(f"Dataset for fold {fold} is constructed and checked!")
     print(f'Split: {fold}, n: {len(dataset)}')
@@ -23,7 +23,7 @@ def create_dataloader(args, fold, mode="train", type='dl'):
         return dataloader
     elif type == 'data_info':
         all_censorships, all_event_times = dataset.get_all_labels()
-        return {'censorship': all_censorships, 'time':all_event_times}
+        return {'censorship': all_censorships, 'time':all_event_times, 'label_bins': dataset.get_label_bins()}
     else: 
         return dataset
 
@@ -57,7 +57,7 @@ def k_fold_test(args):
         print("\n \n Testing fold ", i)
         # Get test dataloader & train data info
         train_data_info = create_dataloader(args, fold=i, mode="train", type='data_info')
-        test_dl = create_dataloader(args, fold=i, mode='test')
+        test_dl = create_dataloader(args, fold=i, mode='test', label_bins=train_data_info['label_bins'])
         #
         # Get test results
         results = survival_test(args, test_dl, survival_info_train=train_data_info, fold=i)
@@ -82,7 +82,7 @@ def k_fold_train_test(args):
     for i in range(args.folds):
         # Get train and test dataloaders
         train_dl = create_dataloader(args, fold=i, mode="train")
-        test_dl = create_dataloader(args, fold=i, mode="test")
+        test_dl = create_dataloader(args, fold=i, mode="test", label_bins=train_dl.dataset.get_label_bins())
         #
         # Train and test
         results = survival_train(args, i, train_dl, test_dl)
@@ -171,7 +171,9 @@ if __name__ == "__main__":
     # dataset args
     # SPLITS
     parser.add_argument('--splits_dir', type=str, default='doc/splits/tcga_brca/', help='path to the splits directory')
+    parser.add_argument('--id_col', type=str, default=None, help='Slide id column in the splits files, matching the names of the WSI feature files. Default: slide_id (TCGA). For dsquame: study_number')
     # CD
+    parser.add_argument('--clinical_data_path', type=str, default='data/data_files/tcga_brca/clinical_data_all_filtered.csv', help='path to the clinical data csv file (used to look up target_col etc. for the slide ids in each split)')
     parser.add_argument('--data_filter_type', type=str, default='filtered', help='manually specify the data filter type (filtered / unfiltered) or with over/undersampling')
     # WSI
     parser.add_argument('--fm_type', type=str, default='uni', choices=['uni', 'mstar', 'conchv15', 'virchow2'], help='foundation model type for WSI patch embeddings')

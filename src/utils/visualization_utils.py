@@ -20,19 +20,21 @@ from embeddings.embeddings import get_prototypes
 from data.WSI_dataset import WSIDataset
 
 
-def get_dataset(mode, fold, type, wsi_feat_type):
+def get_dataset(mode, fold, type, wsi_feat_type, id_col=None):
     """ Obtain dataset for visualization. """
     data_source = f'../data/data_files/tcga_{type}/'
-    dataset = WSIDataset(data_source, wsi_feat_type, mode, fold)
+    dataset = WSIDataset(data_source, wsi_feat_type, mode, fold, id_col=id_col)
     return dataset
 
-def find_fold(slide_id, type, mode):
+def find_fold(slide_id, type, mode, id_col=None):
     """ Find fold where slide is in the test or train (mode) set. """
+    # Slide id column, default is slide_id (TCGA)
+    slide_col = id_col if id_col else 'slide_id'
     data_folder = f"../data/data_files/tcga_{type}"
     for i in range(5):
         fold_test_file = os.path.join(data_folder, f'splits/{i}')
         test_pd = pd.read_csv(os.path.join(fold_test_file, f"{mode}_filtered.csv"))
-        if slide_id in test_pd['slide_id'].values:
+        if slide_id in test_pd[slide_col].values:
             return fold_test_file
     
     raise ValueError("Slide is not in the dataset")
@@ -177,14 +179,17 @@ def plot_pt(result_file, h5_feats_fpath, slides_fpath, all_ids, all_patch_lens, 
     plt.close()
 
 
-def get_data_pathways(pathways, test_data, hallmarks, rna_data, shap_dict):
+def get_data_pathways(pathways, test_data, hallmarks, rna_data, shap_dict, id_col=None):
     """ Get the mean pathway expression of all samples per pathway together with the predicted risk score (group level). """
+    # Slide and patient id columns, default is slide_id and case_id (TCGA)
+    slide_col = id_col if id_col else 'slide_id'
+    case_col = id_col if id_col else 'case_id'
 
     shap_values = shap_dict['shap values']
     shap_values_rna = np.sum(shap_values[:, 16:, :], axis=2)
 
     plot_data = []
-    for i, (sample, slide) in enumerate(zip(test_data['case_id'].values, test_data['slide_id'].values)):
+    for i, (sample, slide) in enumerate(zip(test_data[case_col].values, test_data[slide_col].values)):
      
         case_id_index = list(shap_dict['Samples']).index(slide)
         assert shap_dict['Samples'][case_id_index] == slide, "Correct case ID not found in results."
