@@ -3,7 +3,7 @@ import sys
 import os
 from torch.utils.data import DataLoader
 
-from data.mm_classification_dataset import MMClassificationDataset
+from data.mm_dataset import MMClassificationDataset
 from utils.general_utils import set_seed, save_json, save_exp_settings
 from classification.train import classification_train
 
@@ -106,7 +106,7 @@ if __name__ == "__main__":
 
     # Experiment args / label args
     parser.add_argument('--exp_code', type=str, default='test', help='experiment code for saving results')
-    parser.add_argument('--label_col', type=str, default='label', help='name of the categorical label column in the splits csv (0-indexed class integers)')
+    parser.add_argument('--target_col', type=str, default='label', help='name of the categorical label column in the splits csv (0-indexed class integers)')
     parser.add_argument('--n_classes', type=int, default=2, help='number of classes for classification')
     parser.add_argument('--folds', type=int, default=5)
     parser.add_argument('--mode', type=str, default='train_test', choices=['train_test', 'train'])
@@ -115,7 +115,9 @@ if __name__ == "__main__":
     # dataset args
     # SPLITS
     parser.add_argument('--splits_dir', type=str, default='doc/splits/tcga_brca/', help='path to the splits directory')
+    parser.add_argument('--id_col', type=str, default=None, help='Slide id column in the splits files, matching the names of the WSI feature files. Default: slide_id (TCGA). For dsquame: study_number')
     # CD
+    parser.add_argument('--clinical_data_path', type=str, default='data/data_files/tcga_brca/clinical_data_all_filtered.csv', help='path to the clinical data csv file (used to look up target_col etc. for the slide ids in each split)')
     parser.add_argument('--data_filter_type', type=str, default='filtered', help='manually specify the data filter type (filtered / unfiltered) or with over/undersampling')
     # WSI
     parser.add_argument('--fm_type', type=str, default='uni', choices=['uni', 'mstar', 'conchv15', 'virchow2'], help='foundation model type for WSI patch embeddings')
