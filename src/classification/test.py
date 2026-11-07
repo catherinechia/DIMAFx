@@ -2,9 +2,12 @@ import os
 import torch
 import numpy as np
 
+from .losses import CEClassLoss, SVMClassLoss
 from .metrics import compute_classification_metrics
 from utils.train_utils import list_to_device, LoggingMeter
-from utils.general_utils import save_pkl
+from utils.general_utils import save_json, save_pkl
+from embeddings.embeddings import prepare_embeddings
+from models.DIMAFx import DIMAFxClassifier
 
 
 def test_classification_model(model, test_dl, device, return_attn=False, result_dir=None, mode='post_training'):
@@ -82,4 +85,40 @@ def test_classification_model(model, test_dl, device, return_attn=False, result_
             os.makedirs(attn_dis_dir, exist_ok=True)
             save_pkl(attn_dis_dir, f"learned_attention_matrices_test.pkl", attention_data)
 
+    return results
+
+def classification_test(args, test_dl, fold):
+    """ Load and test a classification model. """
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    results_dir_fold = os.path.join(args.result_dir, f"Fold_{fold}/")
+    pretrained_model_path = os.path.join(results_dir_fold, "model_checkpoint.pth")
+    assert os.path.isfile(pretrained_model_path), f"No trained model found at {pretrained_model_path}. Run with --mode train or train_test first."
+
+    # Initialize loss function
+    if args.loss_fn == 'ce':
+        loss_fn = CEClassLoss(num_classes=args.n_classes)
+    elif args.loss_fn == 'svm':
+        loss_fn = SVMClassLoss(num_classes=args.n_classes, device=device)
+
+    # Create unimodal representations
+    test_dl, data_info = prepare_embeddings(args, 'test', test_dl)
+
+    # Load model
+    model = DIMAFxClassifier(rna_dims=data_info['Pathway sizes'],
+                       histo_dim=data_info['Dim wsi'],
+                       device=device,
+                       single_out_dim=256,
+                       num_classes=args.n_classes,
+                       loss_fn=loss_fn,
+                       aggr_post_embed=args.aggr_post_embed,
+                       wsi_representation_type=args.wsi_repr,
+                       num_proto_wsi=args.n_proto
+                       )
+    model.to(device)
+    model.from_pretrained(pretrained_model_path)
+
+    # Test the model
+    results = test_classification_model(model, test_dl, device, return_attn=args.return_attn, result_dir=results_dir_fold)
+    save_json(results_dir_fold, f"test_summary.json", results)
     return results
