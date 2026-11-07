@@ -6,6 +6,8 @@ from torch.utils.data import DataLoader
 from data.mm_dataset import MMClassificationDataset
 from utils.general_utils import set_seed, save_json, save_exp_settings
 from classification.train import classification_train
+from interpretability.shap_values import ShapClassification, k_fold_shap, k_fold_shap_stable
+from classification.test import classification_test
 
 
 def create_dataloader(args, fold, mode="train", type='dl'):
@@ -23,6 +25,20 @@ def create_dataloader(args, fold, mode="train", type='dl'):
         return {'labels': dataset.get_all_labels()}
     else:
         return dataset
+
+def k_fold_test(args):
+    """ K-fold cross-validation - Test only. """
+    final_res = {}
+    for i in range(args.folds):
+        print("\n \n Testing fold ", i)
+        # Get test dataloader
+        test_dl = create_dataloader(args, fold=i, mode="test")
+        #
+        # Get test results
+        results = classification_test(args, test_dl, fold=i)
+        final_res[f'Fold{i}'] = results
+    #
+    save_json(args.result_dir, 'Results.json', final_res)
 
 def k_fold_train(args):
     """ K-fold cross-validation - Train only. """
@@ -65,6 +81,12 @@ def main(args):
         k_fold_train_test(args)
     elif args.mode == "train":
         k_fold_train(args)
+    elif args.mode == "test":
+        k_fold_test(args)
+    elif args.mode == "shap":
+        k_fold_shap(args, ShapClassification)
+    elif args.mode == "shap_stable":
+        k_fold_shap_stable(args, ShapClassification)
     else:
         sys.exit("Mode not (yet) supported for classification! Abborting..")
     #
@@ -109,7 +131,7 @@ if __name__ == "__main__":
     parser.add_argument('--target_col', type=str, default='label', help='name of the categorical label column in the splits csv (0-indexed class integers)')
     parser.add_argument('--n_classes', type=int, default=2, help='number of classes for classification')
     parser.add_argument('--folds', type=int, default=5)
-    parser.add_argument('--mode', type=str, default='train_test', choices=['train_test', 'train'])
+    parser.add_argument('--mode', type=str, default='train_test', choices=['test', 'train_test', 'train', 'shap', 'shap_stable'])
 
 
     # dataset args
@@ -133,6 +155,12 @@ if __name__ == "__main__":
     # logging args
     parser.add_argument('--result_dir', default='results', help='results directory')
     parser.add_argument('--return_attn', action='store_true', default=False)
+
+    # SHAP args
+    parser.add_argument('--shap_refdist_n', type=int, default=512, help='number of train samples in the SHAP background distribution')
+    parser.add_argument('--shap_bs', type=int, default=64)
+    parser.add_argument('--explainer', type=str, default='shap', choices=['eg', 'shap'])
+    parser.add_argument('--shap_target', type=str, default='logits', choices=ShapClassification.shap_targets, help='explained output: the logits of all classes')
 
     args = parser.parse_args()
     main(args)

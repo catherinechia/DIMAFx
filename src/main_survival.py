@@ -7,7 +7,7 @@ from data.mm_dataset import MMSurvivalDataset
 from utils.general_utils import set_seed, save_json, save_exp_settings
 from survival.train import survival_train
 from survival.test import survival_test
-from interpretability.shap_values import survival_shap
+from interpretability.shap_values import ShapSurvival, k_fold_shap, k_fold_shap_stable
 
 
 def create_dataloader(args, fold, mode="train", type='dl', label_bins=None):
@@ -26,29 +26,6 @@ def create_dataloader(args, fold, mode="train", type='dl', label_bins=None):
         return {'censorship': all_censorships, 'time':all_event_times, 'label_bins': dataset.get_label_bins()}
     else: 
         return dataset
-
-def k_fold_shap(args):
-    """ Obtain shap values for k-folds. """
-    for i in range(args.folds):
-        print(f"Fold {i}")
-        # Pre attention SHAP (modality experiment of 2 representations)
-        survival_shap(args, i, 'modal')
-        # Post attention SHAP (shared/specific experiment of 4 representations)
-        survival_shap(args, i, 'post_attn')
-        # Post attention and aggregatopm SHAP (shared/specific experiment of 4 representations)
-        survival_shap(args, i, 'post_attn_av')
-
-def k_fold_shap_stable(args):
-    """ Obtain shap values for k-folds. """
-    for seed in [1, 2, 3, 4, 5]:
-        for i in range(args.folds):
-            print(f"Fold {i}")
-            # Pre attention SHAP (modality experiment of 2 representations)
-            survival_shap(args, i, 'modal', background_seed=seed)
-            # Post attention SHAP (shared/specific experiment of 4 representations)
-            survival_shap(args, i, 'post_attn', background_seed=seed)
-            # Post attention and aggregatopm SHAP (shared/specific experiment of 4 representations)
-            survival_shap(args, i, 'post_attn_av', background_seed=seed)
 
 def k_fold_test(args):
     """ K-fold cross-validation - Test only. """
@@ -113,9 +90,9 @@ def main(args):
     elif args.mode == "test":
         k_fold_test(args)
     elif args.mode == "shap":
-        k_fold_shap(args)
+        k_fold_shap(args, ShapSurvival)
     elif args.mode == "shap_stable":
-        k_fold_shap_stable(args)
+        k_fold_shap_stable(args, ShapSurvival)
     else:
         sys.exit("Unspecified mode! Abborting..")
     #
@@ -194,6 +171,7 @@ if __name__ == "__main__":
     parser.add_argument('--shap_refdist_n', type=int, default=512) # BRCA: 512, BLCA: 256, LUAD: 320, KIRC: 192
     parser.add_argument('--shap_bs', type=int, default=64)
     parser.add_argument('--explainer', type=str, default='shap', choices=['eg', 'shap'])
+    parser.add_argument('--shap_target', type=str, default='logits', choices=ShapSurvival.shap_targets, help='explained output: raw logits (one per time bin for NLL) or a single risk score')
 
 
     args = parser.parse_args()
