@@ -173,11 +173,17 @@ class MMDatasetBase(Dataset):
         else:
             raise FileNotFoundError(f"{self.feat_omics_path} not found!")
 
+        # Ids must have the same type as in data_df, numeric ids would otherwise not match
+        self.df_rna[self.case_col] = self.df_rna[self.case_col].astype(str)
+        self.data_df[self.case_col] = self.data_df[self.case_col].astype(str)
+
         # Check for duplicates
         self.check_rna_files()
 
         # Keep only the patients that are in this split and have WSI data
         case_ids_overlap = overlap_col_df(self.df_rna, self.data_df, self.case_col)
+        assert len(case_ids_overlap) > 0, (f"No overlapping {self.case_col} values between the RNA data and the {self.mode} split of fold {self.fold}. "
+                                           f"E.g. RNA: {self.df_rna[self.case_col].head(3).tolist()}, split: {self.data_df[self.case_col].head(3).tolist()}")
         sample_list = sorted(case_ids_overlap)
 
         self.data_df = self.data_df[self.data_df[self.case_col].isin(sample_list)].reset_index(drop=True)
@@ -219,7 +225,7 @@ class MMDatasetBase(Dataset):
 
     def setup_rna_pathways(self):
         """ Load Hallmarks biological pathways, which serve as the prototypes. """
-        signatures = pd.read_csv(self.signatures_omics_path, index_col=0)
+        signatures = pd.read_csv(self.signatures_omics_path)
         self.rna_names = []
         self.pathway_names = []
         self.pathway_sizes = []
