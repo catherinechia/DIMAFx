@@ -6,16 +6,17 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
 
 
-def shap_dotplot_by_risk(shap_vals, feature_names, risk_scores, cmap="coolwarm"):
-    """ Make shap risk plot. """
-    risk_scores = np.log2(risk_scores)  
+def shap_dotplot_by_risk(shap_vals, feature_names, risk_scores, cmap="coolwarm", save_path=None, log2=True, cbar_title='Log2\nSurvival\nRisk'):
+    """ Make shap risk plot. Set log2=False to color by scores that are already centered at 0 (e.g. log-odds). """
+    if log2:
+        risk_scores = np.log2(risk_scores)
 
     # Normalize colors tightly around your risk scores
     # vmin, vmax = np.min(risk_scores), np.max(risk_scores)
     # norm = plt.Normalize(vmin=vmin, vmax=vmax)
     max_val = np.max(np.abs(risk_scores))
     norm = TwoSlopeNorm(vmin=-max_val, vcenter=0, vmax=max_val)
-    cmap = plt.get_cmap('coolwarm')
+    cmap = plt.get_cmap(cmap)
 
     fig, ax = plt.subplots(figsize=(12, len(feature_names) * 0.4))
 
@@ -45,12 +46,15 @@ def shap_dotplot_by_risk(shap_vals, feature_names, risk_scores, cmap="coolwarm")
 
     # Colorbar
     cbar = plt.colorbar(sc, orientation='vertical', shrink=0.3, aspect=10, pad=0.08)
-    cbar.ax.set_title('Log2\nSurvival\nRisk)', fontsize=10, pad=4)
+    cbar.ax.set_title(cbar_title, fontsize=10, pad=4)
 
     ax.set_ylim(-0.5, len(feature_names) - 0.5)
     plt.tight_layout()
 
+    if save_path is not None:
+        plt.savefig(save_path, dpi=500, bbox_inches='tight')
     plt.show()
+
 
 
 def find_feat_name(ft_name):
